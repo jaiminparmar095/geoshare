@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="110" fill="#030712"/>
+  <!-- Outer ring -->
+  <circle cx="256" cy="210" r="150" fill="none" stroke="rgba(34,217,138,0.12)" stroke-width="2"/>
+  <circle cx="256" cy="210" r="108" fill="none" stroke="rgba(34,217,138,0.2)" stroke-width="2"/>
+  <circle cx="256" cy="210" r="66" fill="none" stroke="rgba(34,217,138,0.32)" stroke-width="2"/>
+  <!-- Pin shape -->
+  <path d="M256 380 C256 380 136 268 136 200 C136 131.8 189.8 78 256 78 C322.2 78 376 131.8 376 200 C376 268 256 380 256 380Z" fill="url(#pg)" opacity="0.95"/>
+  <!-- Pin hole -->
+  <circle cx="256" cy="200" r="28" fill="#030712"/>
+  <!-- Satellite dots -->
+  <circle cx="380" cy="108" r="10" fill="#22d98a" opacity="0.8"/>
+  <circle cx="130" cy="118" r="7" fill="#22d98a" opacity="0.45"/>
+  <circle cx="390" cy="265" r="6" fill="#38bdf8" opacity="0.55"/>
+  <circle cx="160" cy="310" r="5" fill="#38bdf8" opacity="0.3"/>
+  <defs>
+    <linearGradient id="pg" x1="256" y1="78" x2="256" y2="380" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#22d98a"/>
+      <stop offset="100%" stop-color="#16a862"/>
+    </linearGradient>
+  </defs>
+</svg>

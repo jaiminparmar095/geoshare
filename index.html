@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"/>
+  <meta name="theme-color" content="#030712"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+  <meta name="apple-mobile-web-app-title" content="GeoShare"/>
+  <meta name="mobile-web-app-capable" content="yes"/>
+  <meta name="description" content="Share your real GPS location live"/>
+  <title>GeoShare — Allow Location</title>
+  <link rel="manifest" href="manifest.json"/>
+  <link rel="apple-touch-icon" href="icon.svg"/>
+  <link rel="icon" href="icon.svg"/>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet"/>
+  <style>
+/* ═══════════════════════ RESET & ROOT ═══════════════════════ */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#030712;
+  --bg2:#060e1f;
+  --card:rgba(6,14,31,0.9);
+  --border:rgba(255,255,255,0.07);
+  --border2:rgba(255,255,255,0.12);
+  --green:#22d98a;
+  --green2:#16a862;
+  --blue:#38bdf8;
+  --orange:#fb923c;
+  --red:#f43f5e;
+  --text:#f1f5f9;
+  --sub:#94a3b8;
+  --sub2:#475569;
+  --fh:'Space Grotesk',sans-serif;
+  --fm:'JetBrains Mono',monospace;
+  --r:18px;
+  --r2:12px;
+  --safe-top:env(safe-area-inset-top,0px);
+  --safe-bot:env(safe-area-inset-bottom,0px);
+}
+html,body{
+  height:100%;background:var(--bg);color:var(--text);
+  font-family:var(--fh);overflow:hidden;
+  -webkit-tap-highlight-color:transparent;
+  -webkit-font-smoothing:antialiased;
+}
+
+/* ═══════════════════════ BACKGROUND ═══════════════════════ */
+.bg{position:fixed;inset:0;z-index:0;overflow:hidden;pointer-events:none}
+.bg-mesh{
+  position:absolute;inset:0;
+  background:
+    radial-gradient(ellipse 70% 50% at 15% 20%,rgba(34,217,138,.08) 0%,transparent 60%),
+    radial-gradient(ellipse 60% 60% at 85% 80%,rgba(56,189,248,.06) 0%,transparent 60%),
+    radial-gradient(ellipse 40% 40% at 50% 50%,rgba(34,217,138,.03) 0%,transparent 60%);
+}
+.bg-grid{
+  position:absolute;inset:0;
+  background-image:linear-gradient(rgba(255,255,255,.018) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.018) 1px,transparent 1px);
+  background-size:48px 48px;
+}
+canvas#particles{position:absolute;inset:0}
+
+/* ═══════════════════════ LAYOUT ═══════════════════════ */
+.page{
+  position:relative;z-index:1;
+  height:100vh;height:100dvh;
+  display:flex;flex-direction:column;align-items:center;
+  padding:calc(var(--safe-top) + 12px) 16px calc(var(--safe-bot) + 16px);
+  gap:14px;overflow-y:auto;overflow-x:hidden;
+  scrollbar-width:none;
+}
+.page::-webkit-scrollbar{display:none}
+
+/* ═══════════════════════ HEADER ═══════════════════════ */
+.header{
+  width:100%;max-width:440px;
+  display:flex;align-items:center;justify-content:space-between;
+  padding:4px 0;
+  animation:fadeDown .5s ease both;
+}
+.logo{display:flex;align-items:center;gap:9px;font-weight:700;font-size:.95rem;letter-spacing:-.02em}
+.logo-mark{
+  width:32px;height:32px;border-radius:10px;
+  background:linear-gradient(135deg,rgba(34,217,138,.2),rgba(56,189,248,.15));
+  border:1px solid rgba(34,217,138,.25);
+  display:flex;align-items:center;justify-content:center;color:var(--green);
+  box-shadow:0 0 16px rgba(34,217,138,.12);
+}
+.logo-mark svg{width:16px;height:16px}
+.status-pill{
+  display:flex;align-items:center;gap:6px;
+  font-size:.65rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;
+  padding:4px 12px;border-radius:20px;
+  border:1px solid var(--border);background:rgba(255,255,255,.03);color:var(--sub);
+  transition:all .4s;
+}
+.status-pill.active{border-color:rgba(34,217,138,.3);background:rgba(34,217,138,.08);color:var(--green)}
+.status-pill.error{border-color:rgba(244,63,94,.3);background:rgba(244,63,94,.08);color:var(--red)}
+.status-pill .dot{width:6px;height:6px;border-radius:50%;background:currentColor}
+.status-pill.active .dot{animation:blink 1.4s ease-in-out infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.2}}
+
+/* ═══════════════════════ RADAR ═══════════════════════ */
+.radar-section{
+  display:flex;flex-direction:column;align-items:center;gap:0;
+  animation:fadeUp .6s ease .1s both;
+  flex-shrink:0;
+}
+.radar{
+  position:relative;width:170px;height:170px;
+  display:flex;align-items:center;justify-content:center;
+}
+.radar-ring{
+  position:absolute;border-radius:50%;
+  border:1px solid rgba(34,217,138,.12);
+  pointer-events:none;
+}
+.rr1{width:170px;height:170px}
+.rr2{width:120px;height:120px;border-color:rgba(34,217,138,.18)}
+.rr3{width:72px;height:72px;border-color:rgba(34,217,138,.28)}
+.radar-sweep{
+  position:absolute;width:85px;height:85px;border-radius:50%;
+  background:conic-gradient(rgba(34,217,138,.4) 0deg,transparent 60deg,transparent 360deg);
+  animation:radarSpin 2.5s linear infinite;transform-origin:center;
+  opacity:0;transition:opacity .5s;
+}
+.radar-sweep.on{opacity:1}
+@keyframes radarSpin{to{transform:rotate(360deg)}}
+.radar-core{
+  position:relative;z-index:2;
+  width:52px;height:52px;border-radius:50%;
+  background:linear-gradient(135deg,rgba(34,217,138,.15),rgba(56,189,248,.1));
+  border:1.5px solid rgba(34,217,138,.35);
+  display:flex;align-items:center;justify-content:center;
+  color:var(--green);
+  box-shadow:0 0 24px rgba(34,217,138,.18);
+  transition:all .4s;
+}
+.radar-core svg{width:24px;height:24px;transition:all .4s}
+.radar-core.locked{background:linear-gradient(135deg,rgba(34,217,138,.25),rgba(34,217,138,.15));box-shadow:0 0 32px rgba(34,217,138,.35)}
+.radar-dot{
+  position:absolute;width:5px;height:5px;border-radius:50%;
+  background:var(--green);box-shadow:0 0 6px var(--green);
+  animation:rdBlink 2s ease-in-out infinite;opacity:0;transition:opacity .5s;
+}
+.radar-dot.on{opacity:1}
+.rd1{top:20px;left:58px;animation-delay:0s}
+.rd2{bottom:28px;right:30px;animation-delay:.7s}
+.rd3{top:55px;right:18px;animation-delay:1.3s}
+@keyframes rdBlink{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.1;transform:scale(.5)}}
+
+/* ═══════════════════════ CARD ═══════════════════════ */
+.card{
+  width:100%;max-width:440px;
+  background:var(--card);
+  border:1px solid var(--border);
+  border-radius:var(--r);
+  padding:28px 24px 24px;
+  display:flex;flex-direction:column;align-items:center;gap:16px;
+  text-align:center;
+  backdrop-filter:blur(24px);
+  box-shadow:0 24px 64px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.05);
+  animation:fadeUp .6s ease .2s both;
+}
+.card-tag{
+  font-size:.62rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;
+  color:var(--green);background:rgba(34,217,138,.08);
+  border:1px solid rgba(34,217,138,.2);
+  padding:4px 14px;border-radius:20px;
+  transition:all .4s;
+}
+.card h1{
+  font-size:1.8rem;font-weight:700;line-height:1.1;letter-spacing:-.035em;
+  transition:all .3s;
+}
+.card h1 em{
+  font-style:normal;
+  background:linear-gradient(90deg,var(--green),var(--blue));
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+}
+.card-desc{font-size:.875rem;color:var(--sub);line-height:1.7;max-width:340px;transition:all .3s}
+
+/* ═══════════════════════ BADGES ═══════════════════════ */
+.badges{display:flex;gap:7px;flex-wrap:wrap;justify-content:center}
+.badge{
+  display:flex;align-items:center;gap:5px;
+  font-size:.7rem;color:var(--sub);
+  background:rgba(255,255,255,.03);border:1px solid var(--border);
+  border-radius:20px;padding:4px 11px;
+}
+
+/* ═══════════════════════ GPS PROGRESS ═══════════════════════ */
+.gps-progress{
+  width:100%;display:flex;flex-direction:column;gap:8px;
+  opacity:0;transition:opacity .4s;
+}
+.gps-progress.visible{opacity:1}
+.gps-prog-header{display:flex;align-items:center;justify-content:space-between;font-size:.78rem}
+.gps-prog-label{color:var(--sub);display:flex;align-items:center;gap:7px}
+.gps-prog-val{font-family:var(--fm);font-weight:600;font-size:.8rem;transition:color .3s}
+.gps-bar-track{height:5px;background:rgba(255,255,255,.06);border-radius:4px;overflow:hidden}
+.gps-bar-fill{
+  height:100%;width:0%;border-radius:4px;
+  transition:width .8s ease,background .5s;
+  background:var(--red);
+}
+.gps-bar-fill.mid{background:var(--orange)}
+.gps-bar-fill.good{background:var(--green);box-shadow:0 0 8px rgba(34,217,138,.4)}
+.gps-source{font-size:.72rem;color:var(--sub2);display:flex;align-items:center;gap:5px}
+
+/* ═══════════════════════ BUTTONS ═══════════════════════ */
+.btn-row{display:flex;flex-direction:column;gap:9px;width:100%}
+.btn-allow{
+  position:relative;overflow:hidden;
+  width:100%;padding:15px 20px;
+  background:linear-gradient(135deg,#22d98a,#16a862);
+  color:#021a0e;font-family:var(--fh);font-size:.9rem;font-weight:700;
+  border:none;border-radius:14px;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;gap:9px;
+  transition:transform .15s,box-shadow .2s;
+  box-shadow:0 8px 28px rgba(34,217,138,.3);
+  -webkit-tap-highlight-color:transparent;
+}
+.btn-allow::before{
+  content:'';position:absolute;inset:0;
+  background:radial-gradient(ellipse at 50% -20%,rgba(255,255,255,.2),transparent 60%);
+}
+.btn-allow:hover{transform:translateY(-2px);box-shadow:0 14px 36px rgba(34,217,138,.45)}
+.btn-allow:active{transform:scale(.97)}
+.btn-allow:disabled{opacity:.4;cursor:not-allowed;transform:none}
+.btn-ghost{
+  width:100%;padding:12px;
+  background:transparent;border:1px solid var(--border);
+  color:var(--sub);font-family:var(--fh);font-size:.85rem;
+  border-radius:14px;cursor:pointer;transition:all .2s;
+}
+.btn-ghost:hover{background:rgba(255,255,255,.04);color:var(--text)}
+.btn-ghost:active{background:rgba(255,255,255,.07)}
+
+/* ═══════════════════════ COORDS STRIP ═══════════════════════ */
+.coords-strip{
+  width:100%;max-width:440px;
+  display:grid;grid-template-columns:1fr 1fr 1fr;
+  background:var(--card);border:1px solid var(--border);
+  border-radius:var(--r2);overflow:hidden;
+  opacity:0;transition:opacity .5s;
+  animation:fadeUp .5s ease .35s both;
+}
+.coords-strip.show{opacity:1}
+.cs-item{padding:10px 12px;display:flex;flex-direction:column;gap:3px}
+.cs-item:not(:last-child){border-right:1px solid var(--border)}
+.cs-lbl{font-size:.58rem;color:var(--sub2);text-transform:uppercase;letter-spacing:.08em}
+.cs-val{font-family:var(--fm);font-size:.78rem;font-weight:600;color:var(--green);transition:all .3s}
+.cs-val.pending{color:var(--sub2)}
+
+/* ═══════════════════════ MAP LINK ═══════════════════════ */
+.map-link{
+  display:inline-flex;align-items:center;gap:8px;
+  color:var(--blue);font-size:.83rem;font-weight:600;
+  text-decoration:none;padding:10px 20px;
+  border:1px solid rgba(56,189,248,.22);
+  border-radius:10px;background:rgba(56,189,248,.06);
+  transition:all .2s;letter-spacing:.01em;
+}
+.map-link:hover{background:rgba(56,189,248,.12);transform:translateX(2px)}
+.map-link:active{background:rgba(56,189,248,.15)}
+
+/* ═══════════════════════ INSTALL BANNER ═══════════════════════ */
+.install-bar{
+  width:100%;max-width:440px;
+  background:rgba(34,217,138,.05);
+  border:1px solid rgba(34,217,138,.18);
+  border-radius:var(--r2);padding:11px 14px;
+  display:none;align-items:center;gap:10px;cursor:pointer;
+  animation:fadeUp .4s ease both;
+}
+.install-bar.show{display:flex}
+.install-bar p{font-size:.78rem;color:var(--green);flex:1;line-height:1.4}
+.install-bar button{
+  background:var(--green);color:#021a0e;
+  font-family:var(--fh);font-size:.65rem;font-weight:700;
+  padding:6px 13px;border-radius:8px;border:none;cursor:pointer;
+  white-space:nowrap;letter-spacing:.04em;
+}
+
+/* ═══════════════════════ STATUS BOX ═══════════════════════ */
+.status-box{
+  width:100%;padding:12px 16px;border-radius:10px;
+  font-size:.82rem;line-height:1.55;
+  display:none;transition:all .3s;text-align:left;
+}
+.status-box.ok{display:block;background:rgba(34,217,138,.07);border:1px solid rgba(34,217,138,.2);color:var(--green)}
+.status-box.err{display:block;background:rgba(244,63,94,.07);border:1px solid rgba(244,63,94,.2);color:#fb7185}
+.status-box.info{display:block;background:rgba(255,255,255,.04);border:1px solid var(--border);color:var(--sub)}
+
+/* ═══════════════════════ FOOTER ═══════════════════════ */
+footer{font-size:.7rem;color:var(--sub2);display:flex;gap:8px;animation:fadeUp .4s ease .4s both}
+
+/* ═══════════════════════ SPINNER ═══════════════════════ */
+.spin{
+  display:inline-block;width:13px;height:13px;border-radius:50%;
+  border:2px solid rgba(2,26,14,.2);border-top-color:#021a0e;
+  animation:_spin .7s linear infinite;
+}
+.spin.light{border-color:rgba(255,255,255,.1);border-top-color:var(--green)}
+@keyframes _spin{to{transform:rotate(360deg)}}
+
+/* ═══════════════════════ KEYFRAMES ═══════════════════════ */
+@keyframes fadeUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
+@keyframes fadeDown{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:translateY(0)}}
+
+/* ═══════════════════════ RESPONSIVE ═══════════════════════ */
+@media(min-width:600px){
+  .page{justify-content:center}
+  .card h1{font-size:2rem}
+}
+@media(max-height:700px){
+  .radar{width:130px;height:130px}
+  .rr1{width:130px;height:130px}
+  .rr2{width:90px;height:90px}
+  .rr3{width:54px;height:54px}
+  .radar-sweep{width:65px;height:65px}
+  .card{padding:20px 18px 18px;gap:12px}
+  .card h1{font-size:1.55rem}
+  .radar-section{padding-top:0}
+}
+  </style>
+</head>
+<body>
+
+<!-- Background -->
+<div class="bg">
+  <div class="bg-mesh"></div>
+  <div class="bg-grid"></div>
+  <canvas id="particles"></canvas>
+</div>
+
+<div class="page">
+
+  <!-- Header -->
+  <header class="header">
+    <div class="logo">
+      <div class="logo-mark">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+          <path d="M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 0 1 18 0z"/>
+          <circle cx="12" cy="10" r="3"/>
+        </svg>
+      </div>
+      GeoShare
+    </div>
+    <div class="status-pill" id="statusPill">
+      <span class="dot"></span>
+      <span id="pillText">Ready</span>
+    </div>
+  </header>
+
+  <!-- Radar -->
+  <div class="radar-section">
+    <div class="radar">
+      <div class="radar-ring rr1"></div>
+      <div class="radar-ring rr2"></div>
+      <div class="radar-ring rr3"></div>
+      <div class="radar-sweep" id="radarSweep"></div>
+      <div class="radar-dot rd1" id="rd1"></div>
+      <div class="radar-dot rd2" id="rd2"></div>
+      <div class="radar-dot rd3" id="rd3"></div>
+      <div class="radar-core" id="radarCore">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 0 1 18 0z"/>
+          <circle cx="12" cy="10" r="3" fill="currentColor"/>
+        </svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main card -->
+  <div class="card" id="mainCard">
+    <div class="card-tag" id="cardTag">Location Access</div>
+    <h1 id="cardTitle">Share Your <em>Real GPS</em></h1>
+    <p class="card-desc" id="cardDesc">GeoShare captures your actual GPS chip coordinates — not WiFi or cell towers. Your precise location, pinned live on the map.</p>
+
+    <div class="badges">
+      <div class="badge">🛰️ GPS Chip Only</div>
+      <div class="badge">🔒 Encrypted</div>
+      <div class="badge">📋 Sheet Sync</div>
+    </div>
+
+    <!-- GPS Progress (shown while acquiring) -->
+    <div class="gps-progress" id="gpsProgress">
+      <div class="gps-prog-header">
+        <span class="gps-prog-label"><span class="spin light" id="progSpin"></span><span id="progLabel">Acquiring GPS…</span></span>
+        <span class="gps-prog-val" id="progVal">—</span>
+      </div>
+      <div class="gps-bar-track"><div class="gps-bar-fill" id="gpsBarFill"></div></div>
+      <div class="gps-source" id="gpsSource">Waiting for satellite signal…</div>
+    </div>
+
+    <div class="status-box" id="statusBox"></div>
+
+    <div class="btn-row" id="btnRow">
+      <button class="btn-allow" id="btnAllow" onclick="startGPS()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+        Allow Location &amp; Start GPS
+      </button>
+      <button class="btn-ghost" onclick="softDeny()">Maybe Later</button>
+    </div>
+
+    <a class="map-link" id="mapLink" href="map.html" style="display:none">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
+      Open Live Map
+    </a>
+  </div>
+
+  <!-- Coords strip -->
+  <div class="coords-strip" id="coordsStrip">
+    <div class="cs-item"><span class="cs-lbl">Latitude</span><span class="cs-val pending" id="csLat">—</span></div>
+    <div class="cs-item"><span class="cs-lbl">Longitude</span><span class="cs-val pending" id="csLng">—</span></div>
+    <div class="cs-item"><span class="cs-lbl">Accuracy</span><span class="cs-val pending" id="csAcc">—</span></div>
+  </div>
+
+  <!-- Install PWA banner (mobile) -->
+  <div class="install-bar" id="installBar">
+    <p>📲 Install as app for always-on GPS tracking</p>
+    <button onclick="installPWA()">INSTALL</button>
+  </div>
+
+  <footer>Browser controls all location access · No background tracking</footer>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+//  GeoShare — Permission & GPS  |  index.html
+//  Works on PC (shows WiFi location) and Mobile (true GPS)
+// ═══════════════════════════════════════════════════════════════
+
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzXDUvblpb-D7lBlOa4Q786RRGi_tIwf7PtELYxwZkbCWMkI0yO7HYIVZ2FB55QOWWx/exec';
+const GPS_TARGET = 25;    // metres — true GPS threshold
+const MAX_WAIT   = 45000; // 45s then accept best available
+
+// ── DOM ─────────────────────────────────────────────────────
+const $  = id => document.getElementById(id);
+const pill        = $('statusPill');
+const pillText    = $('pillText');
+const radarSweep  = $('radarSweep');
+const radarCore   = $('radarCore');
+const cardTag     = $('cardTag');
+const cardTitle   = $('cardTitle');
+const cardDesc    = $('cardDesc');
+const gpsProgress = $('gpsProgress');
+const progSpin    = $('progSpin');
+const progLabel   = $('progLabel');
+const progVal     = $('progVal');
+const gpsBarFill  = $('gpsBarFill');
+const gpsSource   = $('gpsSource');
+const statusBox   = $('statusBox');
+const btnRow      = $('btnRow');
+const btnAllow    = $('btnAllow');
+const mapLink     = $('mapLink');
+const coordsStrip = $('coordsStrip');
+const csLat       = $('csLat');
+const csLng       = $('csLng');
+const csAcc       = $('csAcc');
+const installBar  = $('installBar');
+
+// ── State ────────────────────────────────────────────────────
+let watchId    = null;
+let bestFix    = null;
+let accepted   = false;
+let fallbackT  = null;
+let isMobile   = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent);
+
+// ── Particle canvas ──────────────────────────────────────────
+(function(){
+  const c = $('particles'), ctx = c.getContext('2d');
+  let W, H, pts = [];
+  const resize = () => { W = c.width = innerWidth; H = c.height = innerHeight; };
+  const mkPt = () => ({ x:Math.random()*W, y:Math.random()*H, vx:(Math.random()-.5)*.25, vy:(Math.random()-.5)*.25, r:Math.random()*1.2+.3, a:Math.random()*.4+.08 });
+  resize(); pts = Array.from({length:70},mkPt);
+  window.addEventListener('resize',resize);
+  (function loop(){
+    ctx.clearRect(0,0,W,H);
+    pts.forEach(p => {
+      p.x+=p.vx; p.y+=p.vy;
+      if(p.x<0)p.x=W; if(p.x>W)p.x=0;
+      if(p.y<0)p.y=H; if(p.y>H)p.y=0;
+      ctx.beginPath(); ctx.arc(p.x,p.y,p.r,0,Math.PI*2);
+      ctx.fillStyle=`rgba(34,217,138,${p.a})`; ctx.fill();
+    });
+    for(let i=0;i<pts.length;i++) for(let j=i+1;j<pts.length;j++){
+      const dx=pts[i].x-pts[j].x, dy=pts[i].y-pts[j].y, d=Math.sqrt(dx*dx+dy*dy);
+      if(d<90){ ctx.beginPath(); ctx.moveTo(pts[i].x,pts[i].y); ctx.lineTo(pts[j].x,pts[j].y);
+        ctx.strokeStyle=`rgba(34,217,138,${.06*(1-d/90)})`; ctx.lineWidth=.5; ctx.stroke(); }
+    }
+    requestAnimationFrame(loop);
+  })();
+})();
+
+// ── Check permission on load ─────────────────────────────────
+window.addEventListener('DOMContentLoaded', async () => {
+  try {
+    const p = await navigator.permissions.query({name:'geolocation'});
+    if(p.state==='granted') startGPS();
+    if(p.state==='denied')  showDenied('Location permission was previously denied. Reset it in browser settings.');
+    p.onchange = () => { if(p.state==='granted') startGPS(); if(p.state==='denied') showDenied(); };
+  } catch(_){}
+});
+
+// ── START GPS ────────────────────────────────────────────────
+function startGPS(){
+  if(watchId !== null) return;
+  btnAllow.disabled = true;
+  btnAllow.innerHTML = '<span class="spin"></span> Starting GPS…';
+
+  setPill('searching');
+  radarSweep.classList.add('on');
+  [$('rd1'),$('rd2'),$('rd3')].forEach(d=>d.classList.add('on'));
+  gpsProgress.classList.add('visible');
+  setGPSSource(9999);
+
+  watchId = navigator.geolocation.watchPosition(onFix, onError, {
+    enableHighAccuracy: true,
+    maximumAge: 0,
+    timeout: Infinity,
+  });
+
+  // Accept best fix after MAX_WAIT if GPS hasn't locked
+  fallbackT = setTimeout(() => {
+    if(!accepted && bestFix) commitFix(bestFix, true);
+    else if(!accepted) onError({code:3});
+  }, MAX_WAIT);
+}
+
+// ── GPS FIX RECEIVED ─────────────────────────────────────────
+function onFix(pos){
+  const {latitude:lat, longitude:lng, accuracy:acc} = pos.coords;
+
+  // Track best fix seen
+  if(!bestFix || acc < bestFix.acc) bestFix = {lat,lng,acc};
+
+  // Always update UI
+  updateProgress(acc);
+  csLat.textContent = lat.toFixed(6); csLat.classList.remove('pending');
+  csLng.textContent = lng.toFixed(6); csLng.classList.remove('pending');
+  csAcc.textContent = '±'+Math.round(acc)+'m'; csAcc.classList.remove('pending');
+  coordsStrip.classList.add('show');
+
+  // Accept if true GPS quality
+  if(!accepted && acc <= GPS_TARGET) commitFix({lat,lng,acc}, false);
+}
+
+// ── COMMIT FIX ───────────────────────────────────────────────
+function commitFix(fix, forced){
+  accepted = true;
+  clearTimeout(fallbackT);
+
+  const {lat,lng,acc} = fix;
+
+  // Save for map
+  localStorage.setItem('gs_loc', JSON.stringify({lat,lng,acc,ts:Date.now()}));
+
+  // UI
+  cardTag.textContent  = forced && acc > GPS_TARGET ? '⚡ Best Available' : '✅ GPS Locked';
+  cardTitle.innerHTML  = forced && acc > GPS_TARGET ? 'Location <em>Active</em>' : '<em>True GPS</em> Locked';
+  cardDesc.textContent = `GPS fix acquired — ±${Math.round(acc)}m accuracy. Your live position is ready.`;
+  btnRow.style.display = 'none';
+  gpsProgress.classList.remove('visible');
+  radarCore.classList.add('locked');
+  setPill('active');
+
+  const warn = forced && acc > GPS_TARGET ? `\n⚠️ Note: ±${Math.round(acc)}m — move outdoors for true GPS` : '';
+  showStatus('ok', `📍 ${lat.toFixed(6)},  ${lng.toFixed(6)}\n✅ Synced to Google Sheet${warn}`);
+  mapLink.style.display = 'inline-flex';
+
+  // Post to sheet
+  postSheet(lat, lng, acc);
+
+  // Keep watching for better position (updates sheet)
+  if(!forced){
+    setInterval(()=>{ if(bestFix) postSheet(bestFix.lat,bestFix.lng,bestFix.acc); }, 30000);
+  }
+}
+
+// ── PROGRESS UI ──────────────────────────────────────────────
+function updateProgress(acc){
+  const pct = Math.min(100, Math.round((GPS_TARGET / acc)*100));
+  gpsBarFill.style.width = pct+'%';
+  gpsBarFill.className = 'gps-bar-fill' + (acc<=GPS_TARGET?' good':acc<=100?' mid':'');
+  progVal.textContent = '±'+Math.round(acc)+'m';
+  progVal.style.color = acc<=GPS_TARGET ? 'var(--green)' : acc<=100 ? 'var(--orange)' : 'var(--red)';
+  progLabel.textContent = getAccLabel(acc);
+  setGPSSource(acc);
+}
+function setGPSSource(acc){
+  gpsSource.textContent = acc>5000 ? '📡 Cell tower detected — waiting for GPS satellite…' :
+    acc>1000 ? '📶 Network location — GPS satellite needed…' :
+    acc>300  ? '🛜 WiFi assisted — GPS chip activating…' :
+    acc>100  ? '🛰️ GPS chip warming up — almost locked…' :
+    acc>GPS_TARGET ? '🛰️ GPS improving — nearly there…' : '✅ True GPS chip locked!';
+}
+function getAccLabel(acc){
+  return acc>1000 ? 'Coarse — ignoring' : acc>300 ? 'WiFi — ignoring' : acc>100 ? 'GPS warming' : acc>GPS_TARGET ? 'GPS refining…' : 'GPS Locked ✓';
+}
+
+// ── ERROR ────────────────────────────────────────────────────
+function onError(e){
+  const m = {1:'Permission denied — enable Location in Settings',2:'GPS unavailable — go outdoors',3:'Still acquiring — please wait…'}[e?.code]||'GPS error';
+  if(e?.code===1) showDenied(m);
+  else showStatus('err', m);
+  btnAllow.disabled=false;
+  btnAllow.innerHTML='🛰️ Retry GPS';
+  setPill('error');
+}
+function showDenied(msg){
+  cardTag.textContent='✗ Access Denied';
+  cardTitle.innerHTML='Location <em>Blocked</em>';
+  cardDesc.textContent='Click the 🔒 lock in your browser address bar → Permissions → Allow Location.';
+  showStatus('err', msg||'Location permission denied.');
+  btnAllow.disabled=false;
+  btnAllow.innerHTML='🔄 Try Again';
+}
+function softDeny(){
+  cardTitle.innerHTML='No problem, <em>come back soon</em>';
+  cardDesc.textContent='You can allow location anytime. Click Try Again when ready.';
+  btnRow.innerHTML='<button class="btn-allow" onclick="location.reload()">← Try Again</button>';
+}
+
+// ── STATUS BOX ───────────────────────────────────────────────
+function showStatus(type, msg){
+  statusBox.className='status-box '+type;
+  statusBox.style.whiteSpace='pre-line';
+  statusBox.textContent=msg;
+}
+function setPill(state){
+  pill.className='status-pill'+(state==='active'?' active':state==='error'?' error':'');
+  pillText.textContent=state==='active'?'GPS Live':state==='error'?'Error':'Searching';
+}
+
+// ── POST TO SHEET ────────────────────────────────────────────
+async function postSheet(lat, lng, acc){
+  try{
+    await fetch(SCRIPT_URL,{
+      method:'POST',mode:'no-cors',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        latitude:lat, longitude:lng, accuracy:acc,
+        timestamp:new Date().toISOString(),
+        mapsUrl:`https://maps.google.com/?q=${lat},${lng}`,
+        source: isMobile ? 'mobile-gps' : 'pc-browser',
+      }),
+    });
+  }catch(_){}
+}
+
+// ── PWA INSTALL ──────────────────────────────────────────────
+let deferredPrompt=null;
+window.addEventListener('beforeinstallprompt',e=>{
+  e.preventDefault(); deferredPrompt=e;
+  installBar.classList.add('show');
+});
+function installPWA(){
+  if(deferredPrompt){
+    deferredPrompt.prompt();
+    deferredPrompt.userChoice.then(()=>{ deferredPrompt=null; installBar.classList.remove('show'); });
+  }
+}
+
+// ── WAKE LOCK (keep screen on while tracking) ────────────────
+(async()=>{ try{ if('wakeLock' in navigator) await navigator.wakeLock.request('screen'); }catch(_){} })();
+
+// ── SERVICE WORKER ───────────────────────────────────────────
+if('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(()=>{});
+</script>
+</body>
+</html>
