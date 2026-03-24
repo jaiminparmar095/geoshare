@@ -1,5 +1,6 @@
-// GeoShare Service Worker v3
-const CACHE = 'geoshare-v3';
+// GeoShare Service Worker v4 (FIXED & STABLE)
+
+const CACHE = 'geoshare-v4'; // 🔥 version updated
 const PRECACHE = [
   './',
   './index.html',
@@ -8,48 +9,85 @@ const PRECACHE = [
   './icon.svg',
 ];
 
+// ───── INSTALL ─────
 self.addEventListener('install', e => {
   e.waitUntil(
     caches.open(CACHE)
-      .then(c => c.addAll(PRECACHE))
-      .catch(() => {}) // don't fail install if fonts etc unavailable
+      .then(cache => cache.addAll(PRECACHE))
+      .catch(() => {}) // ignore failures
   );
   self.skipWaiting();
 });
 
+// ───── ACTIVATE ─────
 self.addEventListener('activate', e => {
   e.waitUntil(
     caches.keys().then(keys =>
-      Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k)))
+      Promise.all(
+        keys.filter(k => k !== CACHE).map(k => caches.delete(k))
+      )
     )
   );
   self.clients.claim();
 });
 
+// ───── FETCH ─────
 self.addEventListener('fetch', e => {
-  const url = e.request.url;
+  const req = e.request;
+  const url = req.url;
 
-  // Never cache Apps Script requests — always live
-  if(url.includes('script.google.com')) return;
+  // ❌ NEVER cache Google Apps Script (live GPS data)
+  if (url.includes('script.google.com')) {
+    return; // let browser handle directly
+  }
 
-  // Network-first for HTML pages (get updates)
-  if(url.endsWith('.html') || url.endsWith('/')) {
+  // ✅ NETWORK-FIRST for HTML (always fresh UI)
+  if (req.destination === 'document') {
     e.respondWith(
-      fetch(e.request)
-        .then(res => { caches.open(CACHE).then(c => c.put(e.request, res.clone())); return res; })
-        .catch(() => caches.match(e.request))
+      fetch(req)
+        .then(networkRes => {
+
+          // clone SAFELY (only once)
+          const copy = networkRes.clone();
+
+          caches.open(CACHE).then(cache => {
+            cache.put(req, copy);
+          });
+
+          return networkRes;
+        })
+        .catch(() => caches.match(req))
     );
     return;
   }
 
-  // Cache-first for assets (fonts, leaflet, icons)
+  // ✅ CACHE-FIRST for static assets
   e.respondWith(
-    caches.match(e.request).then(cached => {
-      if(cached) return cached;
-      return fetch(e.request).then(res => {
-        if(res.ok) caches.open(CACHE).then(c => c.put(e.request, res.clone()));
-        return res;
-      }).catch(() => cached);
+    caches.match(req).then(cached => {
+      if (cached) return cached;
+
+      return fetch(req)
+        .then(networkRes => {
+
+          // ⚠️ avoid caching bad/opaque responses
+          if (
+            !networkRes ||
+            networkRes.status !== 200 ||
+            networkRes.type === 'opaque'
+          ) {
+            return networkRes;
+          }
+
+          // clone BEFORE using
+          const copy = networkRes.clone();
+
+          caches.open(CACHE).then(cache => {
+            cache.put(req, copy);
+          });
+
+          return networkRes;
+        })
+        .catch(() => cached);
     })
   );
 });
