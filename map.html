@@ -344,16 +344,11 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  GeoShare — FIXED LOGIC (PC + MOBILE SYNC)
+//  GeoShare — VIEW ONLY (Sheet → Map)
 // ═══════════════════════════════════════════════════════════════
 
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzXDUvblpb-D7lBlOa4Q786RRGi_tIwf7PtELYxwZkbCWMkI0yO7HYIVZ2FB55QOWWx/exec';
-const GPS_THRESHOLD = 25;
 const POLL_MS = 10000;
-const FORCE_SHEET_ON_DESKTOP = true; // 🔥 KEY FIX
-
-// Detect mobile
-const isMobile = /Android|iPhone|iPad/i.test(navigator.userAgent);
 
 // ── DOM ──────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
@@ -367,6 +362,9 @@ const pollRing = $('pollRing');
 const srcTag = $('srcTag');
 const toast = $('toast');
 const overlay = $('noLocOverlay');
+
+// Hide overlay permanently
+overlay.style.display = "none";
 
 // ── MAP ──────────────────────────────────────────────────────
 const map = L.map('map',{zoomControl:true,attributionControl:false,preferCanvas:true});
@@ -383,45 +381,12 @@ const markerIcon = L.divIcon({
 
 let pin=null, accCircle=null, firstFly=true, hasPin=false, currentPos=null;
 
-// ── STATE ────────────────────────────────────────────────────
-let localFixed=false;
-
 // ═════════ INIT ═════════
 window.addEventListener('DOMContentLoaded',()=>{
-  startLocalGPS();
   startSheetPoll();
 });
 
-// ═════════ LOCAL GPS ═════════
-function startLocalGPS(){
-  if(!navigator.geolocation) return;
-
-  navigator.geolocation.watchPosition(pos=>{
-    const {latitude:lat, longitude:lng, accuracy:acc} = pos.coords;
-
-    // Desktop → IGNORE GPS (important fix)
-    if(FORCE_SHEET_ON_DESKTOP && !isMobile){
-      localFixed = false;
-      return;
-    }
-
-    overlay.classList.add('gone');
-
-    if(acc <= GPS_THRESHOLD){
-      localFixed = true;
-      placePin(lat,lng,acc,'local-gps');
-      bpTimeText.textContent = fmtTime(new Date());
-      srcTag.textContent = '📍 Device GPS';
-      srcTag.className = 'src-tag gps';
-      srcTag.style.display = 'inline-flex';
-    } else {
-      localFixed = false;
-    }
-
-  },()=>{}, {enableHighAccuracy:true});
-}
-
-// ═════════ SHEET POLLING ═════════
+// ═════════ SHEET POLLING ONLY ═════════
 function startSheetPoll(){
   doPoll();
   setInterval(doPoll, POLL_MS);
@@ -435,10 +400,8 @@ async function doPoll(){
     const d = await r.json();
     pollRing.style.display='none';
 
-    console.log("Sheet:", d); // debug
-
     if(!d.found){
-      if(!hasPin) bpTimeText.textContent='No data — open GeoShare on your phone';
+      if(!hasPin) bpTimeText.textContent='No data available';
       return;
     }
 
@@ -449,29 +412,22 @@ async function doPoll(){
 
     const age=Math.round((Date.now()-ts.getTime())/1000);
 
-    overlay.classList.add('gone');
+    placePin(lat,lng,acc);
 
-    // 🔥 CORE FIX: Always allow sheet on PC OR if no good GPS
-    if(!localFixed || !isMobile){
-      placePin(lat,lng,acc,'sheet');
+    const ageStr = age<60 ? age+'s ago' : Math.round(age/60)+'m ago';
+    bpTimeText.textContent = 'Updated '+ageStr;
 
-      const ageStr = age<60 ? age+'s ago' : Math.round(age/60)+'m ago';
-      bpTimeText.textContent = 'Updated '+ageStr;
-
-      srcTag.textContent='📱 Phone GPS';
-      srcTag.className='src-tag';
-      srcTag.style.display='inline-flex';
-    }
+    srcTag.textContent='📱 Live Device';
+    srcTag.style.display='inline-flex';
 
   }catch(e){
     pollRing.style.display='none';
-    console.log("Error:",e);
     if(!hasPin) bpTimeText.textContent='⚠️ Connection error';
   }
 }
 
 // ═════════ PLACE PIN ═════════
-function placePin(lat,lng,acc,source){
+function placePin(lat,lng,acc){
   hasPin=true;
   currentPos={lat,lng,acc};
   const ll=[lat,lng];
@@ -489,7 +445,7 @@ function placePin(lat,lng,acc,source){
 
   pin.bindPopup(`
     <div class="popup-inner">
-      <span class="pt">📍 My Location</span>
+      <span class="pt">📍 Live Location</span>
       <div class="pr"><span class="pk">Latitude</span><span class="pv">${lat.toFixed(7)}</span></div>
       <div class="pr"><span class="pk">Longitude</span><span class="pv">${lng.toFixed(7)}</span></div>
       <div class="pr"><span class="pk">Accuracy</span><span class="pv">±${Math.round(acc)} m</span></div>
@@ -507,11 +463,6 @@ function placePin(lat,lng,acc,source){
 
   tbDot.classList.add('live');
   liveBadge.classList.add('on');
-}
-
-// ═════════ UTIL ═════════
-function fmtTime(d){
-  return d.toLocaleTimeString();
 }
 </script>
 </body>
