@@ -344,292 +344,175 @@ html,body{height:100%;overflow:hidden;background:var(--bg);color:var(--text);fon
 
 <script>
 // ═══════════════════════════════════════════════════════════════
-//  GeoShare — Live Map  |  map.html
-//
-//  Sources (in priority order):
-//  1. Local GPS watch (≤25m) — best for mobile
-//  2. Google Sheet polling every 10s — for PC watching phone
-//  3. localStorage cache — instant restore
+//  GeoShare — FIXED LOGIC (PC + MOBILE SYNC)
 // ═══════════════════════════════════════════════════════════════
 
 const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzXDUvblpb-D7lBlOa4Q786RRGi_tIwf7PtELYxwZkbCWMkI0yO7HYIVZ2FB55QOWWx/exec';
 const GPS_THRESHOLD = 25;
-const POLL_MS       = 10000;
+const POLL_MS = 10000;
+const FORCE_SHEET_ON_DESKTOP = true; // 🔥 KEY FIX
+
+// Detect mobile
+const isMobile = /Android|iPhone|iPad/i.test(navigator.userAgent);
 
 // ── DOM ──────────────────────────────────────────────────────
-const $        = id => document.getElementById(id);
-const tbDot    = $('tbDot');
-const liveBadge= $('liveBadge');
-const bpAcc    = $('bpAcc');
-const bpLat    = $('bpLat');
-const bpLng    = $('bpLng');
-const bpTimeText=$('bpTimeText');
+const $ = id => document.getElementById(id);
+const tbDot = $('tbDot');
+const liveBadge = $('liveBadge');
+const bpAcc = $('bpAcc');
+const bpLat = $('bpLat');
+const bpLng = $('bpLng');
+const bpTimeText = $('bpTimeText');
 const pollRing = $('pollRing');
-const srcTag   = $('srcTag');
-const toast    = $('toast');
-const overlay  = $('noLocOverlay');
+const srcTag = $('srcTag');
+const toast = $('toast');
+const overlay = $('noLocOverlay');
 
-// ── MAP TILES ────────────────────────────────────────────────
-const TILES = [
-  { name:'Dark',     url:'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',     sub:'abcd' },
-  { name:'Street',   url:'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',                 sub:'abc'  },
-  { name:'Satellite',url:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', sub:'' },
-  { name:'Terrain',  url:'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', sub:'abcd' },
-];
-let tileIdx = 0;
+// ── MAP ──────────────────────────────────────────────────────
+const map = L.map('map',{zoomControl:true,attributionControl:false,preferCanvas:true});
+let tileLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{subdomains:'abcd',maxZoom:20}).addTo(map);
+map.setView([22.3039,70.8022],13);
+L.control.scale({imperial:false,position:'bottomright'}).addTo(map);
 
-// ── LEAFLET MAP INIT ─────────────────────────────────────────
-const map = L.map('map', {
-  zoomControl:       true,
-  attributionControl:false,
-  preferCanvas:      true,
-});
-
-let tileLayer = L.tileLayer(TILES[0].url, { subdomains:TILES[0].sub, maxZoom:20 }).addTo(map);
-map.setView([22.3039, 70.8022], 13);
-
-// Scale control
-L.control.scale({ imperial:false, position:'bottomright' }).addTo(map);
-
-// ── MARKER & CIRCLES ─────────────────────────────────────────
+// ── MARKER ───────────────────────────────────────────────────
 const markerIcon = L.divIcon({
   className:'my-pin-wrap',
   html:'<div class="my-pin-outer"><div class="my-pin-inner"></div></div>',
-  iconSize:[22,22], iconAnchor:[11,11], popupAnchor:[0,-14],
+  iconSize:[22,22],iconAnchor:[11,11]
 });
 
-let pin        = null;
-let accCircle  = null;
-let firstFly   = true;
-let hasPin     = false;
-let currentPos = null;
+let pin=null, accCircle=null, firstFly=true, hasPin=false, currentPos=null;
 
 // ── STATE ────────────────────────────────────────────────────
-let localWatchId   = null;
-let localFixed     = false;
-let pollTimer      = null;
-let lastSheetTime  = 0;
-let sheetPollCount = 0;
+let localFixed=false;
 
-// ═══════════════════════════════════════════════════════════
-//  INIT
-// ═══════════════════════════════════════════════════════════
-window.addEventListener('DOMContentLoaded', () => {
-  // 1. Instant restore from localStorage
-  const stored = localStorage.getItem('gs_loc');
-  if(stored){
-    try{
-      const d = JSON.parse(stored);
-      const age = Date.now() - d.ts;
-      if(age < 5*60*1000){ // < 5 min
-        placePin(d.lat, d.lng, d.acc, 'cache');
-        overlay.classList.add('gone');
-        bpTimeText.textContent = 'Cached · '+Math.round(age/1000)+'s ago';
-      }
-    }catch(_){}
-  }
-
-  // 2. Start local GPS (works on mobile, may work on laptop with GPS)
+// ═════════ INIT ═════════
+window.addEventListener('DOMContentLoaded',()=>{
   startLocalGPS();
-
-  // 3. Poll Google Sheet (cross-device — PC watching phone)
   startSheetPoll();
-
-  // 4. Hide overlay if we already have a pin
-  setTimeout(() => { if(hasPin) overlay.classList.add('gone'); }, 2000);
 });
 
-// ═══════════════════════════════════════════════════════════
-//  LOCAL GPS
-// ═══════════════════════════════════════════════════════════
+// ═════════ LOCAL GPS ═════════
 function startLocalGPS(){
   if(!navigator.geolocation) return;
-  localWatchId = navigator.geolocation.watchPosition(
-    pos => {
-      const {latitude:lat, longitude:lng, accuracy:acc} = pos.coords;
-      overlay.classList.add('gone');
 
-      // Accept any fix ≤ GPS_THRESHOLD as true GPS
-      if(acc <= GPS_THRESHOLD){
-        localFixed = true;
-        localStorage.setItem('gs_loc', JSON.stringify({lat,lng,acc,ts:Date.now()}));
-        placePin(lat, lng, acc, 'local-gps');
-        bpTimeText.textContent = fmtTime(new Date());
-        srcTag.textContent = '📍 Device GPS';
-        srcTag.className = 'src-tag gps';
-        srcTag.style.display = 'inline-flex';
-      } else if(!localFixed && !hasPin){
-        // Show rough position but keep polling
-        placePin(lat, lng, acc, 'local-approx');
-        bpTimeText.textContent = '🛰️ GPS refining… ±'+Math.round(acc)+'m';
-      }
-    },
-    ()=>{}, // silent — sheet polling is the fallback
-    { enableHighAccuracy:true, maximumAge:0, timeout:Infinity }
-  );
-}
+  navigator.geolocation.watchPosition(pos=>{
+    const {latitude:lat, longitude:lng, accuracy:acc} = pos.coords;
 
-// ═══════════════════════════════════════════════════════════
-//  SHEET POLLING
-// ═══════════════════════════════════════════════════════════
-function startSheetPoll(){
-  doPoll(); // immediate
-  pollTimer = setInterval(doPoll, POLL_MS);
-}
-
-async function doPoll(){
-  // Don't overwrite a fresh local GPS fix
-  if(localFixed) return;
-
-  pollRing.style.display = 'inline-block';
-  sheetPollCount++;
-
-  try{
-    const r = await fetch(SCRIPT_URL+'?action=latest&_='+Date.now(), {cache:'no-store'});
-    const d = await r.json();
-    pollRing.style.display = 'none';
-
-    if(!d.found){
-      if(!hasPin) bpTimeText.textContent = 'No data — open GeoShare on your phone';
+    // Desktop → IGNORE GPS (important fix)
+    if(FORCE_SHEET_ON_DESKTOP && !isMobile){
+      localFixed = false;
       return;
     }
 
-    const lat = parseFloat(d.latitude);
-    const lng = parseFloat(d.longitude);
-    const acc = parseFloat(d.accuracy)||20;
-    const ts  = new Date(d.timestamp);
-    const age = Math.round((Date.now()-ts.getTime())/1000);
-
-    lastSheetTime = ts.getTime();
     overlay.classList.add('gone');
-    placePin(lat, lng, acc, 'sheet');
 
-    const ageStr = age<60 ? age+'s ago' : age<3600 ? Math.round(age/60)+'m ago' : Math.round(age/3600)+'h ago';
-    bpTimeText.textContent = 'Updated '+ageStr;
-    srcTag.textContent = '📱 Phone GPS';
-    srcTag.className = 'src-tag';
-    srcTag.style.display = 'inline-flex';
+    if(acc <= GPS_THRESHOLD){
+      localFixed = true;
+      placePin(lat,lng,acc,'local-gps');
+      bpTimeText.textContent = fmtTime(new Date());
+      srcTag.textContent = '📍 Device GPS';
+      srcTag.className = 'src-tag gps';
+      srcTag.style.display = 'inline-flex';
+    } else {
+      localFixed = false;
+    }
 
-  }catch(_){
-    pollRing.style.display = 'none';
-    if(!hasPin) bpTimeText.textContent = '⚠️ Connection error — retrying…';
+  },()=>{}, {enableHighAccuracy:true});
+}
+
+// ═════════ SHEET POLLING ═════════
+function startSheetPoll(){
+  doPoll();
+  setInterval(doPoll, POLL_MS);
+}
+
+async function doPoll(){
+  pollRing.style.display='inline-block';
+
+  try{
+    const r = await fetch(SCRIPT_URL+'?action=latest&_='+Date.now(),{cache:'no-store'});
+    const d = await r.json();
+    pollRing.style.display='none';
+
+    console.log("Sheet:", d); // debug
+
+    if(!d.found){
+      if(!hasPin) bpTimeText.textContent='No data — open GeoShare on your phone';
+      return;
+    }
+
+    const lat=parseFloat(d.latitude);
+    const lng=parseFloat(d.longitude);
+    const acc=parseFloat(d.accuracy)||20;
+    const ts=new Date(d.timestamp);
+
+    const age=Math.round((Date.now()-ts.getTime())/1000);
+
+    overlay.classList.add('gone');
+
+    // 🔥 CORE FIX: Always allow sheet on PC OR if no good GPS
+    if(!localFixed || !isMobile){
+      placePin(lat,lng,acc,'sheet');
+
+      const ageStr = age<60 ? age+'s ago' : Math.round(age/60)+'m ago';
+      bpTimeText.textContent = 'Updated '+ageStr;
+
+      srcTag.textContent='📱 Phone GPS';
+      srcTag.className='src-tag';
+      srcTag.style.display='inline-flex';
+    }
+
+  }catch(e){
+    pollRing.style.display='none';
+    console.log("Error:",e);
+    if(!hasPin) bpTimeText.textContent='⚠️ Connection error';
   }
 }
 
-// ═══════════════════════════════════════════════════════════
-//  PLACE / UPDATE PIN ON MAP
-// ═══════════════════════════════════════════════════════════
-function placePin(lat, lng, acc, source){
-  hasPin     = true;
-  currentPos = {lat, lng, acc};
-  const ll   = [lat, lng];
+// ═════════ PLACE PIN ═════════
+function placePin(lat,lng,acc,source){
+  hasPin=true;
+  currentPos={lat,lng,acc};
+  const ll=[lat,lng];
 
-  // First fly
   if(firstFly){
-    firstFly = false;
-    map.flyTo(ll, 17, {duration:1.6, easeLinearity:.25});
+    firstFly=false;
+    map.flyTo(ll,17,{duration:1.5});
   }
 
-  // Marker
   if(!pin){
-    pin = L.marker(ll, {icon:markerIcon, zIndexOffset:1000}).addTo(map);
-    pin.bindPopup('', {maxWidth:260});
-  } else {
-    pin.setLatLng(ll);
-  }
+    pin=L.marker(ll,{icon:markerIcon}).addTo(map);
+  } else pin.setLatLng(ll);
 
-  // Popup content
-  const mapsUrl = `https://maps.google.com/?q=${lat},${lng}`;
-  pin.setPopupContent(`
+  const mapsUrl=`https://maps.google.com/?q=${lat},${lng}`;
+
+  pin.bindPopup(`
     <div class="popup-inner">
       <span class="pt">📍 My Location</span>
       <div class="pr"><span class="pk">Latitude</span><span class="pv">${lat.toFixed(7)}</span></div>
       <div class="pr"><span class="pk">Longitude</span><span class="pv">${lng.toFixed(7)}</span></div>
       <div class="pr"><span class="pk">Accuracy</span><span class="pv">±${Math.round(acc)} m</span></div>
-      <div class="pr"><span class="pk">Source</span><span class="pv">${getSourceLabel(source,acc)}</span></div>
-      <div class="pr"><span class="pk">Updated</span><span class="pv">${fmtTime(new Date())}</span></div>
-      <div class="pm"><a href="${mapsUrl}" target="_blank">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
-        Open in Google Maps
-      </a></div>
+      <div class="pm"><a href="${mapsUrl}" target="_blank">Open in Google Maps</a></div>
     </div>
   `);
 
-  // Accuracy circle
-  const circColor = acc<=GPS_THRESHOLD ? '#22d98a' : acc<=100 ? '#fb923c' : '#f43f5e';
   if(!accCircle){
-    accCircle = L.circle(ll, {
-      radius:acc, color:circColor, fillColor:circColor,
-      fillOpacity:.07, weight:1.5, opacity:.3,
-    }).addTo(map);
-  } else {
-    accCircle.setLatLng(ll).setRadius(acc);
-    accCircle.setStyle({color:circColor,fillColor:circColor});
-  }
+    accCircle=L.circle(ll,{radius:acc,color:'#22d98a',fillOpacity:.07}).addTo(map);
+  } else accCircle.setLatLng(ll).setRadius(acc);
 
-  // Bottom panel
-  bpLat.textContent = lat.toFixed(6); bpLat.classList.add('live');
-  bpLng.textContent = lng.toFixed(6); bpLng.classList.add('live');
-  updateAccBadge(acc);
+  bpLat.textContent=lat.toFixed(6);
+  bpLng.textContent=lng.toFixed(6);
+  bpAcc.textContent='±'+Math.round(acc)+' m';
 
-  // Topbar live
   tbDot.classList.add('live');
   liveBadge.classList.add('on');
 }
 
-function updateAccBadge(acc){
-  bpAcc.textContent = '±'+Math.round(acc)+' m';
-  bpAcc.className = 'bp-acc'+(acc>100?' bad':acc>GPS_THRESHOLD?' coarse':'');
-}
-
-function getSourceLabel(src, acc){
-  if(src==='local-gps') return '✅ Device GPS';
-  if(src==='local-approx') return '🛰️ GPS (±'+Math.round(acc)+'m)';
-  if(src==='sheet') return '📱 Phone via Sheet';
-  return '💾 Cached';
-}
-
-// ═══════════════════════════════════════════════════════════
-//  CONTROLS
-// ═══════════════════════════════════════════════════════════
-$('btnCenter').addEventListener('click', () => {
-  if(pin){ map.flyTo(pin.getLatLng(),17,{duration:1}); showToast('📍 Centered on location'); }
-  else showToast('📱 No location yet — open the phone app');
-});
-
-$('btnShare').addEventListener('click', () => {
-  if(!currentPos){ showToast('⏳ No position yet'); return; }
-  const {lat,lng} = currentPos;
-  const url = `https://maps.google.com/?q=${lat},${lng}`;
-  if(navigator.share) navigator.share({title:'My Location',text:`📍 ${lat.toFixed(6)}, ${lng.toFixed(6)}`,url});
-  else navigator.clipboard.writeText(url).then(()=>showToast('✅ Link copied!')).catch(()=>{prompt('Copy:',url)});
-});
-
-$('btnLayers').addEventListener('click', () => {
-  tileIdx = (tileIdx+1) % TILES.length;
-  const t = TILES[tileIdx];
-  map.removeLayer(tileLayer);
-  tileLayer = L.tileLayer(t.url, {subdomains:t.sub||'abc',maxZoom:20}).addTo(map);
-  showToast('🗺️ Map: '+t.name);
-});
-
-function dismissOverlay(){
-  overlay.classList.add('gone');
-  startLocalGPS();
-}
-
-// ─── Toast ────────────────────────────────────────────────
-let _tt;
-function showToast(msg){
-  toast.textContent=msg; toast.classList.add('show');
-  clearTimeout(_tt); _tt=setTimeout(()=>toast.classList.remove('show'),2800);
-}
+// ═════════ UTIL ═════════
 function fmtTime(d){
-  return d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  return d.toLocaleTimeString();
 }
-
-// Service Worker
-if('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(()=>{});
 </script>
 </body>
 </html>
